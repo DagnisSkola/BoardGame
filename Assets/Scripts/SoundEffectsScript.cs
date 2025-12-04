@@ -7,33 +7,42 @@ public class SoundEffectsScript : MonoBehaviour
 
     public void Hover()
     {
-        audioSource.PlayOneShot(soundEffects[0]);
+        PlaySFX(soundEffects[0]);
     }
 
     public void Click()
     {
-        audioSource.PlayOneShot(soundEffects[1]);
+        PlaySFX(soundEffects[1]);
     }
 
     public void OnDice()
     {
         audioSource.loop = true;
         audioSource.clip = soundEffects[2];
+        audioSource.volume = SettingsMenu.SFXVolume;
         audioSource.Play();
     }
 
     public void CancelButton()
     {
-        audioSource.PlayOneShot(soundEffects[3]);
+        PlaySFX(soundEffects[3]);
     }
 
     public void PlayButton()
     {
-        audioSource.PlayOneShot(soundEffects[4]);
+        PlaySFX(soundEffects[4]);
     }
 
     public void NameField()
     {
-        audioSource.PlayOneShot(soundEffects[5]);
+        PlaySFX(soundEffects[5]);
+    }
+
+    private void PlaySFX(AudioClip clip)
+    {
+        if (clip != null)
+        {
+            audioSource.PlayOneShot(clip, SettingsMenu.SFXVolume);
+        }
     }
 }
