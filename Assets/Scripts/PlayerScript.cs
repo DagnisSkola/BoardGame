@@ -10,16 +10,29 @@ public class PlayerScript : MonoBehaviour
     int index;
     private const string textFileName = "PlayerNames";
 
+    [Header("Checkpoint System")]
+    public CheckpointMovementScript checkpointMovement;
+
     void Start()
     {
         characterIndex = PlayerPrefs.GetInt("SelectedCharacter", 0);
         GameObject mainCharacter = Instantiate(playerPrefabs[characterIndex], spawnPoint.transform.position, Quaternion.identity);
         mainCharacter.GetComponent<NameScript>().SetName(PlayerPrefs.GetString("PlayerName", "John Doe"));
 
+        // Register the main character with the checkpoint system
+        if (checkpointMovement != null)
+        {
+            checkpointMovement.SetPlayerCharacter(mainCharacter);
+        }
+        else
+        {
+            Debug.LogWarning("CheckpointMovementScript not assigned in PlayerScript!");
+        }
+
         otherPlayers = new int[PlayerPrefs.GetInt("PlayerCount")];
         string[] nameArray = ReadLinesFromFile(textFileName);
 
-        for(int i=0; i<otherPlayers.Length-1; i++)
+        for (int i = 0; i < otherPlayers.Length - 1; i++)
         {
             spawnPoint.transform.position += new Vector3(0.2f, 0, 0.08f);
             index = Random.Range(0, playerPrefabs.Length);
@@ -32,7 +45,7 @@ public class PlayerScript : MonoBehaviour
     {
         TextAsset textAsset = Resources.Load<TextAsset>(fileName);
 
-        if(textAsset != null)
+        if (textAsset != null)
         {
             return textAsset.text.Split(new[] { '\r', '\n' }, System.StringSplitOptions.RemoveEmptyEntries);
         }
