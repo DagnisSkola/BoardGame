@@ -9,7 +9,8 @@ public class CheckpointMovementScript : MonoBehaviour
     private GameObject playerCharacter; // Now set dynamically
 
     [Header("Checkpoint Settings")]
-    [SerializeField] private Transform[] checkpoints;
+    [SerializeField] private Transform checkpointParent; // Drag the parent empty here
+    private Transform[] checkpoints;
     [SerializeField] private float moveSpeed = 3f;
     [SerializeField] private float rotationSpeed = 5f;
 
@@ -54,6 +55,61 @@ public class CheckpointMovementScript : MonoBehaviour
         {
             diceRollScript = FindFirstObjectByType<DiceRollScript>();
         }
+
+        // Automatically populate checkpoints from parent
+        if (checkpointParent != null)
+        {
+            PopulateCheckpoints();
+        }
+        else
+        {
+            Debug.LogWarning("Checkpoint Parent not assigned! Please assign the parent GameObject containing all checkpoints.");
+        }
+    }
+
+    private void PopulateCheckpoints()
+    {
+        // Get all child transforms
+        List<Transform> checkpointList = new List<Transform>();
+
+        foreach (Transform child in checkpointParent)
+        {
+            checkpointList.Add(child);
+        }
+
+        // Sort by name (assuming names like Checkpoint_1, Checkpoint_2, etc.)
+        checkpointList.Sort((a, b) =>
+        {
+            // Extract number from name
+            int numA = ExtractNumberFromName(a.name);
+            int numB = ExtractNumberFromName(b.name);
+            return numA.CompareTo(numB);
+        });
+
+        checkpoints = checkpointList.ToArray();
+
+        Debug.Log($"Automatically loaded {checkpoints.Length} checkpoints in order.");
+    }
+
+    private int ExtractNumberFromName(string name)
+    {
+        // Extract number from strings like "Checkpoint_1", "Checkpoint_2", etc.
+        string numberPart = "";
+
+        for (int i = 0; i < name.Length; i++)
+        {
+            if (char.IsDigit(name[i]))
+            {
+                numberPart += name[i];
+            }
+        }
+
+        if (int.TryParse(numberPart, out int number))
+        {
+            return number;
+        }
+
+        return 0;
     }
 
     // Public method to set the player character from PlayerScript
