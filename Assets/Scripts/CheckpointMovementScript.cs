@@ -1,11 +1,16 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using System;
 
 public class CheckpointMovementScript : MonoBehaviour
 {
+    // Event that fires when movement is complete
+    public event Action OnMovementComplete;
+
     [Header("References")]
     [SerializeField] private DiceRollScript diceRollScript;
+    [SerializeField] private CameraFollowScript cameraFollow;
     private GameObject playerCharacter; // Now set dynamically
 
     [Header("Checkpoint Settings")]
@@ -67,6 +72,15 @@ public class CheckpointMovementScript : MonoBehaviour
         }
     }
 
+    void Awake()
+    {
+        // Populate checkpoints early in Awake so they're ready for other scripts
+        if (checkpointParent != null)
+        {
+            PopulateCheckpoints();
+        }
+    }
+
     private void PopulateCheckpoints()
     {
         // Get all child transforms
@@ -116,11 +130,43 @@ public class CheckpointMovementScript : MonoBehaviour
     public void SetPlayerCharacter(GameObject player)
     {
         playerCharacter = player;
+        Debug.Log($"[CheckpointMovement] Player character set: {player.name}");
+
+        // Make sure checkpoints are loaded
+        if (checkpoints == null || checkpoints.Length == 0)
+        {
+            Debug.LogWarning("[CheckpointMovement] Checkpoints not loaded yet, attempting to populate...");
+            if (checkpointParent != null)
+            {
+                PopulateCheckpoints();
+            }
+            else
+            {
+                Debug.LogError("[CheckpointMovement] Cannot position player - no checkpoints available and no checkpoint parent assigned!");
+                return;
+            }
+        }
 
         // Position player at first checkpoint if available
-        if (checkpoints.Length > 0 && playerCharacter != null)
+        if (checkpoints != null && checkpoints.Length > 0 && playerCharacter != null)
         {
             playerCharacter.transform.position = checkpoints[0].position;
+            Debug.Log($"[CheckpointMovement] Player positioned at first checkpoint: {checkpoints[0].position}");
+        }
+        else
+        {
+            Debug.LogWarning("[CheckpointMovement] Could not position player at first checkpoint - checkpoints array is empty!");
+        }
+
+        // Set player for camera to follow
+        if (cameraFollow != null)
+        {
+            Debug.Log("[CheckpointMovement] Setting player for camera to follow");
+            cameraFollow.SetPlayerToFollow(player);
+        }
+        else
+        {
+            Debug.LogWarning("[CheckpointMovement] CameraFollow reference is null! Camera won't follow player.");
         }
     }
 
@@ -163,7 +209,19 @@ public class CheckpointMovementScript : MonoBehaviour
 
     private IEnumerator MoveToCheckpoints(int steps)
     {
+        Debug.Log($"[CheckpointMovement] Starting movement for {steps} steps");
         isMoving = true;
+
+        // Tell camera to start following
+        if (cameraFollow != null)
+        {
+            Debug.Log("[CheckpointMovement] Telling camera to start following");
+            cameraFollow.StartFollowing();
+        }
+        else
+        {
+            Debug.LogWarning("[CheckpointMovement] Camera follow is null, can't start following");
+        }
 
         for (int i = 0; i < steps; i++)
         {
@@ -177,6 +235,7 @@ public class CheckpointMovementScript : MonoBehaviour
                 break;
             }
 
+            Debug.Log($"[CheckpointMovement] Moving to checkpoint {targetIndex}");
             // Move to next checkpoint
             yield return StartCoroutine(MoveToCheckpoint(checkpoints[targetIndex]));
             currentCheckpointIndex = targetIndex;
@@ -188,7 +247,18 @@ public class CheckpointMovementScript : MonoBehaviour
         // Check for special rules after landing
         yield return StartCoroutine(CheckSpecialRules());
 
+        // Tell camera to return to original position
+        if (cameraFollow != null)
+        {
+            Debug.Log("[CheckpointMovement] Telling camera to stop following");
+            cameraFollow.StopFollowing();
+        }
+
         isMoving = false;
+        Debug.Log("[CheckpointMovement] Movement complete");
+
+        // Trigger the movement complete event
+        OnMovementComplete?.Invoke();
     }
 
     private IEnumerator CheckSpecialRules()
@@ -288,6 +358,12 @@ public class CheckpointMovementScript : MonoBehaviour
         {
             playerCharacter.transform.position = checkpoints[0].position;
         }
+    }
+
+    // Public method to get special rules (for bot system)
+    public List<CheckpointRule> GetSpecialRules()
+    {
+        return specialRules;
     }
 
     // Optional: Visual debug to see checkpoint path and special rules
