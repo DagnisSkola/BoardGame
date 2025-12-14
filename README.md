@@ -7,7 +7,10 @@
 - [x] Main menu buttons (start, quit, settings, leaderboard)
 - [x] Character selection screen with animation
 - [x] Settings scene ;
-- [ ] Board scene with throwable dice
-- [ ] Game logic with multiple players ;
-- [ ] Game camera ;
+- [x] Board scene with throwable dice
+- [x] Game logic with multiple players ;
+- [x] Game camera ;
 - [ ] Leaderboard scene ;
+- [ ] Circus game functionality ;
+- [ ] Player bounces back if throw is higher than needed for finish;
+- [ ] Add text to notify which players turn it is;

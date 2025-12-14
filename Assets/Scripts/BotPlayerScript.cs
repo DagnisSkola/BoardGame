@@ -12,7 +12,8 @@ public class BotPlayerScript : MonoBehaviour
 
     [Header("Bot Settings")]
     [SerializeField] private float botTurnDelay = 2f; // Delay before bot takes their turn
-    [SerializeField] private float diceWaitTime = 3f; // Time to wait for dice to settle
+    [SerializeField] private float diceWaitTime = 4f; // Max time to wait for dice to settle
+    [SerializeField] private float minRollTime = 0.5f; // Minimum time before checking if dice landed
     [SerializeField] private float moveSpeed = 3f;
     [SerializeField] private float rotationSpeed = 5f;
     [SerializeField] private float heightOffset = 0.5f;
@@ -137,6 +138,12 @@ public class BotPlayerScript : MonoBehaviour
         Debug.Log($"[BotPlayer] Total players: {allPlayers.Count}");
         isProcessingTurn = true;
 
+        // Disable player control during bot turns
+        if (checkpointMovement != null)
+        {
+            checkpointMovement.SetPlayerControlEnabled(false);
+        }
+
         // Process all bot players (skip index 0 which is the main player)
         for (int i = 1; i < allPlayers.Count; i++)
         {
@@ -149,56 +156,100 @@ public class BotPlayerScript : MonoBehaviour
             Debug.Log($"[BotPlayer] Waiting {botTurnDelay} seconds before {currentBot.name}'s turn");
             yield return new WaitForSeconds(botTurnDelay);
 
-            // Roll the physical dice
+            // Roll the dice and wait for result
             int diceRoll = 0;
             if (diceRollScript != null)
             {
                 Debug.Log($"[BotPlayer] {currentBot.name} is rolling the dice...");
 
-                // Reset and roll the dice
-                diceRollScript.ResetDice();
-                yield return new WaitForSeconds(0.2f); // Small delay after reset
+                // Tell the checkpoint system to ignore this dice roll
+                if (checkpointMovement != null)
+                {
+                    checkpointMovement.IgnoreNextDiceLanding();
+                }
 
-                // Trigger the dice roll (simulate the roll)
-                diceRollScript.GetComponent<Rigidbody>().isKinematic = false;
+                // Reset the dice state properly
+                diceRollScript.ResetDice();
+                yield return new WaitForSeconds(0.3f); // Small delay after reset
+
+                // Get the Rigidbody component
+                Rigidbody diceRB = diceRollScript.GetComponent<Rigidbody>();
+
+                // Make sure dice is not kinematic
+                diceRB.isKinematic = false;
+
+                // Apply random rotation and force
+                diceRollScript.transform.rotation = new Quaternion(
+                    Random.Range(0, 360),
+                    Random.Range(0, 360),
+                    Random.Range(0, 360),
+                    0
+                );
+
                 float forceX = Random.Range(0, 500);
                 float forceY = Random.Range(0, 500);
                 float forceZ = Random.Range(0, 500);
-                diceRollScript.GetComponent<Rigidbody>().AddForce(Vector3.up * Random.Range(800, 1200));
-                diceRollScript.GetComponent<Rigidbody>().AddTorque(forceX, forceY, forceZ);
+                diceRB.AddForce(Vector3.up * Random.Range(800, 1200));
+                diceRB.AddTorque(forceX, forceY, forceZ);
 
-                // Wait for dice to land
-                Debug.Log($"[BotPlayer] Waiting for dice to settle...");
-                float elapsed = 0f;
-                while (elapsed < diceWaitTime && !diceRollScript.isLanded)
+                Debug.Log($"[BotPlayer] Dice thrown, waiting for it to settle...");
+
+                // Wait minimum roll time first
+                yield return new WaitForSeconds(minRollTime);
+
+                // Now check every frame if dice has landed
+                float elapsed = minRollTime;
+                bool diceHasLanded = false;
+
+                while (elapsed < diceWaitTime)
                 {
+                    if (diceRollScript.isLanded)
+                    {
+                        Debug.Log($"[BotPlayer] Dice landed after {elapsed:F2} seconds");
+                        diceHasLanded = true;
+                        break;
+                    }
+
+                    yield return null; // Check every frame instead of waiting
                     elapsed += Time.deltaTime;
-                    yield return null;
                 }
 
                 // Get the result
-                if (diceRollScript.isLanded)
+                if (diceHasLanded && diceRollScript.isLanded)
                 {
                     if (int.TryParse(diceRollScript.diceFaceNum, out diceRoll))
                     {
-                        Debug.Log($"[BotPlayer] {currentBot.name} rolled: {diceRoll}");
+                        Debug.Log($"[BotPlayer] *** {currentBot.name} rolled: {diceRoll} ***");
                     }
                     else
                     {
-                        Debug.LogWarning($"[BotPlayer] Could not parse dice result: {diceRollScript.diceFaceNum}, using random");
+                        Debug.LogWarning($"[BotPlayer] Could not parse dice result: '{diceRollScript.diceFaceNum}', using random");
                         diceRoll = Random.Range(1, 7);
+                        Debug.Log($"[BotPlayer] *** {currentBot.name} random roll: {diceRoll} ***");
                     }
                 }
                 else
                 {
-                    Debug.LogWarning($"[BotPlayer] Dice didn't land in time, using random number");
+                    Debug.LogWarning($"[BotPlayer] Dice didn't land in time (elapsed: {elapsed:F2}s), using random number");
                     diceRoll = Random.Range(1, 7);
+                    Debug.Log($"[BotPlayer] *** {currentBot.name} random roll: {diceRoll} ***");
                 }
+
+                // Small delay to show the result
+                yield return new WaitForSeconds(0.5f);
             }
             else
             {
                 Debug.LogWarning("[BotPlayer] DiceRollScript is null, using random number");
                 diceRoll = Random.Range(1, 7);
+                Debug.Log($"[BotPlayer] *** {currentBot.name} random roll: {diceRoll} ***");
+            }
+
+            // Validate dice roll
+            if (diceRoll <= 0)
+            {
+                Debug.LogError($"[BotPlayer] Invalid dice roll: {diceRoll}, setting to 1");
+                diceRoll = 1;
             }
 
             // Tell camera to follow this bot
@@ -234,6 +285,12 @@ public class BotPlayerScript : MonoBehaviour
             yield return new WaitForSeconds(0.5f);
         }
 
+        // Re-enable player control after all bot turns
+        if (checkpointMovement != null)
+        {
+            checkpointMovement.SetPlayerControlEnabled(true);
+        }
+
         isProcessingTurn = false;
         Debug.Log("[BotPlayer] ===== All bot turns complete =====");
 
@@ -247,21 +304,37 @@ public class BotPlayerScript : MonoBehaviour
 
     private IEnumerator MoveBot(GameObject bot, int steps)
     {
-        Debug.Log($"[BotPlayer] MoveBot called for {bot.name} with {steps} steps");
+        Debug.Log($"[BotPlayer] ========== MoveBot START ==========");
+        Debug.Log($"[BotPlayer] Bot: {bot.name}, Steps: {steps}");
+
+        if (bot == null)
+        {
+            Debug.LogError("[BotPlayer] Bot is NULL!");
+            yield break;
+        }
+
+        if (checkpoints == null || checkpoints.Length == 0)
+        {
+            Debug.LogError("[BotPlayer] Checkpoints array is null or empty!");
+            yield break;
+        }
 
         if (!playerCheckpointIndices.ContainsKey(bot))
         {
             Debug.LogError($"[BotPlayer] Bot {bot.name} not found in checkpoint indices!");
+            Debug.Log($"[BotPlayer] Available keys: {string.Join(", ", new List<GameObject>(playerCheckpointIndices.Keys).ConvertAll(p => p.name))}");
             yield break;
         }
 
         int currentCheckpointIndex = playerCheckpointIndices[bot];
         Debug.Log($"[BotPlayer] {bot.name} starting at checkpoint {currentCheckpointIndex}");
+        Debug.Log($"[BotPlayer] Current position: {bot.transform.position}");
 
         for (int i = 0; i < steps; i++)
         {
             int targetIndex = currentCheckpointIndex + 1;
-            Debug.Log($"[BotPlayer] {bot.name} moving step {i + 1}/{steps} to checkpoint {targetIndex}");
+            Debug.Log($"[BotPlayer] === Step {i + 1}/{steps} ===");
+            Debug.Log($"[BotPlayer] {bot.name} moving from checkpoint {currentCheckpointIndex} to {targetIndex}");
 
             if (targetIndex >= checkpoints.Length)
             {
@@ -269,23 +342,36 @@ public class BotPlayerScript : MonoBehaviour
                 break;
             }
 
+            if (checkpoints[targetIndex] == null)
+            {
+                Debug.LogError($"[BotPlayer] Checkpoint at index {targetIndex} is NULL!");
+                break;
+            }
+
+            Debug.Log($"[BotPlayer] Target checkpoint position: {checkpoints[targetIndex].position}");
             yield return StartCoroutine(MoveToCheckpoint(bot, checkpoints[targetIndex]));
+
             currentCheckpointIndex = targetIndex;
             playerCheckpointIndices[bot] = currentCheckpointIndex;
-            Debug.Log($"[BotPlayer] {bot.name} now at checkpoint {currentCheckpointIndex}");
+            Debug.Log($"[BotPlayer] {bot.name} now at checkpoint {currentCheckpointIndex}, position: {bot.transform.position}");
 
             yield return new WaitForSeconds(0.2f);
         }
 
-        Debug.Log($"[BotPlayer] MoveBot complete for {bot.name}");
+        Debug.Log($"[BotPlayer] ========== MoveBot COMPLETE ==========");
     }
 
     private IEnumerator MoveToCheckpoint(GameObject bot, Transform targetCheckpoint)
     {
+        Debug.Log($"[BotPlayer] MoveToCheckpoint START for {bot.name}");
+
         Vector3 startPos = bot.transform.position;
         Vector3 endPos = targetCheckpoint.position;
         float distance = Vector3.Distance(startPos, endPos);
         float duration = distance / moveSpeed;
+
+        Debug.Log($"[BotPlayer] Start: {startPos}, End: {endPos}, Distance: {distance:F2}, Duration: {duration:F2}s");
+
         float elapsed = 0f;
 
         while (elapsed < duration)
@@ -316,6 +402,7 @@ public class BotPlayerScript : MonoBehaviour
         }
 
         bot.transform.position = endPos;
+        Debug.Log($"[BotPlayer] MoveToCheckpoint COMPLETE for {bot.name} at position {endPos}");
     }
 
     private IEnumerator CheckSpecialRules(GameObject bot)

@@ -11,17 +11,17 @@ public class CheckpointMovementScript : MonoBehaviour
     [Header("References")]
     [SerializeField] private DiceRollScript diceRollScript;
     [SerializeField] private CameraFollowScript cameraFollow;
-    private GameObject playerCharacter; // Now set dynamically
+    private GameObject playerCharacter;
 
     [Header("Checkpoint Settings")]
-    [SerializeField] private Transform checkpointParent; // Drag the parent empty here
+    [SerializeField] private Transform checkpointParent;
     private Transform[] checkpoints;
     [SerializeField] private float moveSpeed = 3f;
     [SerializeField] private float rotationSpeed = 5f;
 
     [Header("Movement Settings")]
-    [SerializeField] private float heightOffset = 0.5f; // Arc height during movement
-    [SerializeField] private float teleportDelay = 0.5f; // Delay before special moves trigger
+    [SerializeField] private float heightOffset = 0.5f;
+    [SerializeField] private float teleportDelay = 0.5f;
 
     [Header("Special Checkpoint Rules")]
     [SerializeField] private List<CheckpointRule> specialRules = new List<CheckpointRule>();
@@ -29,53 +29,41 @@ public class CheckpointMovementScript : MonoBehaviour
     private int currentCheckpointIndex = 0;
     private bool isMoving = false;
     private bool hasProcessedRoll = false;
-    private int lastDiceValue = 0;
+    private bool wasLanded = false;
+    private bool isPlayerControlled = true;
+    private bool shouldIgnoreNextLanding = false;
 
     [System.Serializable]
     public class CheckpointRule
     {
-        [Tooltip("The checkpoint number where this rule applies")]
         public int fromCheckpoint;
-
-        [Tooltip("The checkpoint to jump/teleport to")]
         public int toCheckpoint;
-
-        [Tooltip("Optional: Message to display when this rule triggers")]
         public string message = "";
-
-        [Tooltip("Type of movement to the destination")]
         public MovementType movementType = MovementType.Teleport;
     }
 
     public enum MovementType
     {
-        Teleport,      // Instant jump
-        SmoothMove     // Animated movement
+        Teleport,
+        SmoothMove
+    }
+
+    void Awake()
+    {
+        if (checkpointParent != null)
+        {
+            PopulateCheckpoints();
+        }
     }
 
     void Start()
     {
-        // Find DiceRollScript if not assigned
         if (diceRollScript == null)
         {
             diceRollScript = FindFirstObjectByType<DiceRollScript>();
         }
 
-        // Automatically populate checkpoints from parent
-        if (checkpointParent != null)
-        {
-            PopulateCheckpoints();
-        }
-        else
-        {
-            Debug.LogWarning("Checkpoint Parent not assigned! Please assign the parent GameObject containing all checkpoints.");
-        }
-    }
-
-    void Awake()
-    {
-        // Populate checkpoints early in Awake so they're ready for other scripts
-        if (checkpointParent != null)
+        if (checkpointParent != null && (checkpoints == null || checkpoints.Length == 0))
         {
             PopulateCheckpoints();
         }
@@ -83,7 +71,6 @@ public class CheckpointMovementScript : MonoBehaviour
 
     private void PopulateCheckpoints()
     {
-        // Get all child transforms
         List<Transform> checkpointList = new List<Transform>();
 
         foreach (Transform child in checkpointParent)
@@ -91,25 +78,20 @@ public class CheckpointMovementScript : MonoBehaviour
             checkpointList.Add(child);
         }
 
-        // Sort by name (assuming names like Checkpoint_1, Checkpoint_2, etc.)
         checkpointList.Sort((a, b) =>
         {
-            // Extract number from name
             int numA = ExtractNumberFromName(a.name);
             int numB = ExtractNumberFromName(b.name);
             return numA.CompareTo(numB);
         });
 
         checkpoints = checkpointList.ToArray();
-
         Debug.Log($"Automatically loaded {checkpoints.Length} checkpoints in order.");
     }
 
     private int ExtractNumberFromName(string name)
     {
-        // Extract number from strings like "Checkpoint_1", "Checkpoint_2", etc.
         string numberPart = "";
-
         for (int i = 0; i < name.Length; i++)
         {
             if (char.IsDigit(name[i]))
@@ -117,188 +99,135 @@ public class CheckpointMovementScript : MonoBehaviour
                 numberPart += name[i];
             }
         }
-
-        if (int.TryParse(numberPart, out int number))
-        {
-            return number;
-        }
-
-        return 0;
+        return int.TryParse(numberPart, out int number) ? number : 0;
     }
 
-    // Public method to set the player character from PlayerScript
     public void SetPlayerCharacter(GameObject player)
     {
         playerCharacter = player;
         Debug.Log($"[CheckpointMovement] Player character set: {player.name}");
 
-        // Make sure checkpoints are loaded
         if (checkpoints == null || checkpoints.Length == 0)
         {
-            Debug.LogWarning("[CheckpointMovement] Checkpoints not loaded yet, attempting to populate...");
             if (checkpointParent != null)
             {
                 PopulateCheckpoints();
             }
-            else
-            {
-                Debug.LogError("[CheckpointMovement] Cannot position player - no checkpoints available and no checkpoint parent assigned!");
-                return;
-            }
         }
 
-        // Position player at first checkpoint if available
         if (checkpoints != null && checkpoints.Length > 0 && playerCharacter != null)
         {
             playerCharacter.transform.position = checkpoints[0].position;
-            Debug.Log($"[CheckpointMovement] Player positioned at first checkpoint: {checkpoints[0].position}");
-        }
-        else
-        {
-            Debug.LogWarning("[CheckpointMovement] Could not position player at first checkpoint - checkpoints array is empty!");
         }
 
-        // Set player for camera to follow
         if (cameraFollow != null)
         {
-            Debug.Log("[CheckpointMovement] Setting player for camera to follow");
             cameraFollow.SetPlayerToFollow(player);
-        }
-        else
-        {
-            Debug.LogWarning("[CheckpointMovement] CameraFollow reference is null! Camera won't follow player.");
         }
     }
 
     void Update()
     {
-        if (diceRollScript == null || playerCharacter == null || isMoving)
+        if (!isPlayerControlled || diceRollScript == null || playerCharacter == null || isMoving)
             return;
 
-        // Check if dice has landed with a new roll
-        if (diceRollScript.isLanded && !hasProcessedRoll)
+        // Detect dice landing
+        if (diceRollScript.isLanded && !wasLanded && !hasProcessedRoll)
         {
-            int diceValue = ParseDiceValue(diceRollScript.diceFaceNum);
-
-            if (diceValue > 0 && diceValue != lastDiceValue)
+            if (shouldIgnoreNextLanding)
             {
-                lastDiceValue = diceValue;
-                hasProcessedRoll = true;
-                StartCoroutine(MoveToCheckpoints(diceValue));
+                shouldIgnoreNextLanding = false;
+                Debug.Log("[CheckpointMovement] Ignoring bot's dice roll");
+            }
+            else
+            {
+                int diceValue = ParseDiceValue(diceRollScript.diceFaceNum);
+                if (diceValue > 0)
+                {
+                    hasProcessedRoll = true;
+                    StartCoroutine(MoveToCheckpoints(diceValue));
+                }
             }
         }
 
-        // Reset processing flag when dice is rolled again
-        if (!diceRollScript.isLanded)
+        // Reset when dice is rolled again
+        if (!diceRollScript.isLanded && wasLanded)
         {
             hasProcessedRoll = false;
         }
+
+        wasLanded = diceRollScript.isLanded;
     }
 
     private int ParseDiceValue(string diceFace)
     {
-        // Try to parse the dice face number
         if (int.TryParse(diceFace, out int value))
         {
             return value;
         }
-
-        Debug.LogWarning("Could not parse dice value: " + diceFace);
         return 0;
     }
 
     private IEnumerator MoveToCheckpoints(int steps)
     {
-        Debug.Log($"[CheckpointMovement] Starting movement for {steps} steps");
         isMoving = true;
 
-        // Tell camera to start following
         if (cameraFollow != null)
         {
-            Debug.Log("[CheckpointMovement] Telling camera to start following");
             cameraFollow.StartFollowing();
-        }
-        else
-        {
-            Debug.LogWarning("[CheckpointMovement] Camera follow is null, can't start following");
         }
 
         for (int i = 0; i < steps; i++)
         {
-            // Calculate target checkpoint
             int targetIndex = currentCheckpointIndex + 1;
 
-            // Check if we've reached the end
             if (targetIndex >= checkpoints.Length)
             {
                 Debug.Log("Player has reached the final checkpoint!");
                 break;
             }
 
-            Debug.Log($"[CheckpointMovement] Moving to checkpoint {targetIndex}");
-            // Move to next checkpoint
             yield return StartCoroutine(MoveToCheckpoint(checkpoints[targetIndex]));
             currentCheckpointIndex = targetIndex;
-
-            // Small delay between movements
             yield return new WaitForSeconds(0.2f);
         }
 
-        // Check for special rules after landing
         yield return StartCoroutine(CheckSpecialRules());
 
-        // Tell camera to return to original position
         if (cameraFollow != null)
         {
-            Debug.Log("[CheckpointMovement] Telling camera to stop following");
             cameraFollow.StopFollowing();
         }
 
         isMoving = false;
-        Debug.Log("[CheckpointMovement] Movement complete");
-
-        // Trigger the movement complete event
         OnMovementComplete?.Invoke();
     }
 
     private IEnumerator CheckSpecialRules()
     {
-        // Check if current checkpoint has a special rule
         CheckpointRule applicableRule = specialRules.Find(rule => rule.fromCheckpoint == currentCheckpointIndex);
 
         if (applicableRule != null)
         {
-            // Display message if there is one
             if (!string.IsNullOrEmpty(applicableRule.message))
             {
                 Debug.Log(applicableRule.message);
             }
 
-            // Wait a moment before applying the rule
             yield return new WaitForSeconds(teleportDelay);
 
-            // Validate target checkpoint
             if (applicableRule.toCheckpoint >= 0 && applicableRule.toCheckpoint < checkpoints.Length)
             {
-                // Apply the rule based on movement type
                 if (applicableRule.movementType == MovementType.Teleport)
                 {
-                    // Instant teleport
                     playerCharacter.transform.position = checkpoints[applicableRule.toCheckpoint].position;
                     currentCheckpointIndex = applicableRule.toCheckpoint;
-                    Debug.Log($"Teleported from checkpoint {applicableRule.fromCheckpoint} to {applicableRule.toCheckpoint}!");
                 }
                 else if (applicableRule.movementType == MovementType.SmoothMove)
                 {
-                    // Smooth animated movement
                     yield return StartCoroutine(MoveToCheckpoint(checkpoints[applicableRule.toCheckpoint]));
                     currentCheckpointIndex = applicableRule.toCheckpoint;
-                    Debug.Log($"Moved from checkpoint {applicableRule.fromCheckpoint} to {applicableRule.toCheckpoint}!");
                 }
-            }
-            else
-            {
-                Debug.LogWarning($"Invalid target checkpoint {applicableRule.toCheckpoint} in special rule!");
             }
         }
     }
@@ -315,20 +244,14 @@ public class CheckpointMovementScript : MonoBehaviour
         {
             elapsed += Time.deltaTime;
             float t = elapsed / duration;
-
-            // Smooth step for easing
             t = t * t * (3f - 2f * t);
 
-            // Linear interpolation with arc
             Vector3 currentPos = Vector3.Lerp(startPos, endPos, t);
-
-            // Add arc height (parabolic curve)
             float arc = heightOffset * Mathf.Sin(t * Mathf.PI);
             currentPos.y += arc;
 
             playerCharacter.transform.position = currentPos;
 
-            // Rotate to face movement direction
             if (endPos != startPos)
             {
                 Vector3 direction = (endPos - startPos).normalized;
@@ -343,16 +266,14 @@ public class CheckpointMovementScript : MonoBehaviour
             yield return null;
         }
 
-        // Ensure final position is exact
         playerCharacter.transform.position = endPos;
     }
 
-    // Public method to reset player position
     public void ResetToStart()
     {
         currentCheckpointIndex = 0;
-        lastDiceValue = 0;
         hasProcessedRoll = false;
+        wasLanded = false;
 
         if (checkpoints.Length > 0 && playerCharacter != null)
         {
@@ -360,29 +281,22 @@ public class CheckpointMovementScript : MonoBehaviour
         }
     }
 
-    // Public method to get special rules (for bot system)
     public List<CheckpointRule> GetSpecialRules()
     {
         return specialRules;
     }
 
-    // Optional: Visual debug to see checkpoint path and special rules
     private void OnDrawGizmos()
     {
         if (checkpoints == null || checkpoints.Length == 0)
             return;
 
-        // Draw normal checkpoint path
         Gizmos.color = Color.green;
-
         for (int i = 0; i < checkpoints.Length; i++)
         {
             if (checkpoints[i] != null)
             {
-                // Draw sphere at checkpoint
                 Gizmos.DrawWireSphere(checkpoints[i].position, 0.3f);
-
-                // Draw line to next checkpoint
                 if (i < checkpoints.Length - 1 && checkpoints[i + 1] != null)
                 {
                     Gizmos.DrawLine(checkpoints[i].position, checkpoints[i + 1].position);
@@ -390,7 +304,6 @@ public class CheckpointMovementScript : MonoBehaviour
             }
         }
 
-        // Draw special rules
         Gizmos.color = Color.cyan;
         foreach (CheckpointRule rule in specialRules)
         {
@@ -398,17 +311,35 @@ public class CheckpointMovementScript : MonoBehaviour
                 rule.toCheckpoint >= 0 && rule.toCheckpoint < checkpoints.Length &&
                 checkpoints[rule.fromCheckpoint] != null && checkpoints[rule.toCheckpoint] != null)
             {
-                // Draw arrow from source to destination
                 Vector3 from = checkpoints[rule.fromCheckpoint].position;
                 Vector3 to = checkpoints[rule.toCheckpoint].position;
-
                 Gizmos.DrawLine(from, to);
-
-                // Draw small sphere at source checkpoint to indicate special rule
                 Gizmos.color = Color.yellow;
                 Gizmos.DrawSphere(from, 0.4f);
                 Gizmos.color = Color.cyan;
             }
         }
+    }
+
+    public void SetPlayerControlEnabled(bool enabled)
+    {
+        isPlayerControlled = enabled;
+
+        if (enabled)
+        {
+            // When re-enabling player control after bot turns, clear the ignore flag
+            // and sync state with current dice
+            if (diceRollScript != null)
+            {
+                wasLanded = diceRollScript.isLanded;
+            }
+            hasProcessedRoll = false;
+            shouldIgnoreNextLanding = false;
+        }
+    }
+
+    public void IgnoreNextDiceLanding()
+    {
+        shouldIgnoreNextLanding = true;
     }
 }

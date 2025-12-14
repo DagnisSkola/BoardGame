@@ -31,7 +31,7 @@ public class CameraFollowScript : MonoBehaviour
         // Store original camera position and rotation
         originalPosition = transform.position;
         originalRotation = transform.rotation;
-        Debug.Log($"[CameraFollow] Original camera position stored: {originalPosition}");
+        //Debug.Log($"[CameraFollow] Original camera position stored: {originalPosition}");
 
         // Try to find CheckpointMovementScript if not assigned
         if (checkpointMovement == null)
@@ -39,7 +39,7 @@ public class CameraFollowScript : MonoBehaviour
             checkpointMovement = FindFirstObjectByType<CheckpointMovementScript>();
             if (checkpointMovement != null)
             {
-                Debug.Log("[CameraFollow] Found CheckpointMovementScript automatically");
+                //Debug.Log("[CameraFollow] Found CheckpointMovementScript automatically");
             }
             else
             {
@@ -52,29 +52,29 @@ public class CameraFollowScript : MonoBehaviour
     public void SetPlayerToFollow(GameObject player)
     {
         playerToFollow = player;
-        Debug.Log($"[CameraFollow] Player set to follow: {player.name}");
+        //Debug.Log($"[CameraFollow] Player set to follow: {player.name}");
     }
 
     // Call this when movement starts
     public void StartFollowing()
     {
-        Debug.Log("[CameraFollow] StartFollowing() called");
+        //Debug.Log("[CameraFollow] StartFollowing() called");
         shouldFollow = true;
         if (!isFollowing)
         {
-            Debug.Log("[CameraFollow] Starting follow coroutine");
+            //Debug.Log("[CameraFollow] Starting follow coroutine");
             StartCoroutine(TransitionToFollow());
         }
         else
         {
-            Debug.Log("[CameraFollow] Already following, skipping transition");
+            //Debug.Log("[CameraFollow] Already following, skipping transition");
         }
     }
 
     // Call this when movement ends
     public void StopFollowing()
     {
-        Debug.Log("[CameraFollow] StopFollowing() called");
+        //Debug.Log("[CameraFollow] StopFollowing() called");
         shouldFollow = false;
         StartCoroutine(ReturnToOriginalPosition());
     }
@@ -89,7 +89,7 @@ public class CameraFollowScript : MonoBehaviour
         // Additional debug in LateUpdate
         if (showDebugInfo && isFollowing)
         {
-            Debug.Log($"[CameraFollow] LateUpdate - isFollowing: {isFollowing}, useLookAt: {useLookAt}, Current Euler: {transform.rotation.eulerAngles}");
+            //Debug.Log($"[CameraFollow] LateUpdate - isFollowing: {isFollowing}, useLookAt: {useLookAt}, Current Euler: {transform.rotation.eulerAngles}");
         }
     }
 
@@ -125,12 +125,12 @@ public class CameraFollowScript : MonoBehaviour
 
         transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
 
-        Debug.Log($"[CameraFollow] Following - Pos: {transform.position}, Rot: {transform.rotation.eulerAngles}, Target Rot: {targetRotation.eulerAngles}");
+        //Debug.Log($"[CameraFollow] Following - Pos: {transform.position}, Rot: {transform.rotation.eulerAngles}, Target Rot: {targetRotation.eulerAngles}");
     }
 
     private IEnumerator TransitionToFollow()
     {
-        Debug.Log("[CameraFollow] Transition to follow started");
+       // Debug.Log("[CameraFollow] Transition to follow started");
         isFollowing = true;
 
         // Wait a brief moment before starting to follow
@@ -142,7 +142,7 @@ public class CameraFollowScript : MonoBehaviour
         Vector3 startPos = transform.position;
         Quaternion startRot = transform.rotation;
 
-        Debug.Log($"[CameraFollow] Transitioning from {startPos} over {duration} seconds");
+        //Debug.Log($"[CameraFollow] Transitioning from {startPos} over {duration} seconds");
 
         while (elapsed < duration && shouldFollow)
         {
@@ -177,18 +177,18 @@ public class CameraFollowScript : MonoBehaviour
             }
             else
             {
-                Debug.LogWarning("[CameraFollow] Player to follow is null during transition!");
+                //Debug.LogWarning("[CameraFollow] Player to follow is null during transition!");
             }
 
             yield return null;
         }
 
-        Debug.Log("[CameraFollow] Transition to follow complete, now in follow mode");
+       // Debug.Log("[CameraFollow] Transition to follow complete, now in follow mode");
     }
 
     private IEnumerator ReturnToOriginalPosition()
     {
-        Debug.Log($"[CameraFollow] Returning to original position after {returnDelay}s delay");
+        //Debug.Log($"[CameraFollow] Returning to original position after {returnDelay}s delay");
 
         // Wait a moment before returning
         yield return new WaitForSeconds(returnDelay);
@@ -201,7 +201,7 @@ public class CameraFollowScript : MonoBehaviour
         Vector3 startPos = transform.position;
         Quaternion startRot = transform.rotation;
 
-        Debug.Log($"[CameraFollow] Transitioning from {startPos} to {originalPosition}");
+        //Debug.Log($"[CameraFollow] Transitioning from {startPos} to {originalPosition}");
 
         while (elapsed < duration)
         {
@@ -219,7 +219,7 @@ public class CameraFollowScript : MonoBehaviour
         transform.position = originalPosition;
         transform.rotation = originalRotation;
 
-        Debug.Log("[CameraFollow] Return to original position complete");
+        //Debug.Log("[CameraFollow] Return to original position complete");
     }
 
     // Optional: Reset camera to original position manually
