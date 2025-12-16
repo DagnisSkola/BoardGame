@@ -80,10 +80,10 @@ This project focuses on:
 
 ## Images
 
-![Main Menu](https://imgur.com/5p0a2H2)
-![Player pick](https://imgur.com/zafRi1R)
-![Zoomed in](https://imgur.com/ltLbKB9)
-![Full view](https://imgur.com/OL610xQ)
+![Main Menu](https://i.imgur.com/5p0a2H2.png)
+![Player pick](https://i.imgur.com/zafRi1R.png)
+![Zoomed in](https://i.imgur.com/ltLbKB9.jpeg)
+![Full view](https://i.imgur.com/OL610xQ.jpeg)
 
 ## ToDo
 
