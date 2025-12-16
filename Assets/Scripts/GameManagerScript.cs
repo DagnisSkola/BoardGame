@@ -2,6 +2,23 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using TMPro;
 using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+
+[System.Serializable]
+public class WinRecord
+{
+    public string playerName;
+    public int turns;
+    public string time;
+    public string date;
+}
+
+[System.Serializable]
+public class WinRecordList
+{
+    public List<WinRecord> records = new List<WinRecord>();
+}
 
 public class GameManagerScript : MonoBehaviour
 {
@@ -23,11 +40,12 @@ public class GameManagerScript : MonoBehaviour
     [Header("References")]
     [SerializeField] private CheckpointMovementScript checkpointMovement;
     [SerializeField] private BotPlayerScript botPlayerScript;
-    [SerializeField] private SceneChanger sceneChanger; 
+    [SerializeField] private SceneChanger sceneChanger;
 
     [Header("Settings")]
-    [SerializeField] private string menuSceneName = "MainMenu"; // Name of your menu scene
-    [SerializeField] private int finalCheckpointIndex = 119; // Set this to your last checkpoint
+    [SerializeField] private string menuSceneName = "MainMenu";
+    [SerializeField] private int finalCheckpointIndex = 119;
+    [SerializeField] private string defaultPlayerName = "Player"; // Default name if none set
 
     // Game stats tracking
     private float gameStartTime;
@@ -36,9 +54,14 @@ public class GameManagerScript : MonoBehaviour
     private bool gameEnded = false;
 
     private GameObject mainPlayer;
+    private string saveFilePath;
 
     void Start()
     {
+        // Set up save file path
+        saveFilePath = Path.Combine(Application.persistentDataPath, "win_records.json");
+        Debug.Log($"[GameManager] Save file path: {saveFilePath}");
+
         // Hide panels at start
         if (winPanel != null)
         {
@@ -73,9 +96,6 @@ public class GameManagerScript : MonoBehaviour
         Debug.Log($"[GameManager] Main player registered: {player.name}");
     }
 
-    /// <summary>
-    /// Call this when the player completes their turn
-    /// </summary>
     public void OnPlayerTurnComplete()
     {
         if (gameEnded) return;
@@ -85,9 +105,6 @@ public class GameManagerScript : MonoBehaviour
         Debug.Log($"[GameManager] Player turn complete. Player turns: {playerTurnCount}, Total turns: {totalTurnCount}");
     }
 
-    /// <summary>
-    /// Call this when a bot completes their turn
-    /// </summary>
     public void OnBotTurnComplete()
     {
         if (gameEnded) return;
@@ -96,9 +113,6 @@ public class GameManagerScript : MonoBehaviour
         Debug.Log($"[GameManager] Bot turn complete. Total turns: {totalTurnCount}");
     }
 
-    /// <summary>
-    /// Check if player has reached the final checkpoint
-    /// </summary>
     public void CheckPlayerWinCondition(int currentCheckpoint)
     {
         Debug.Log($"[GameManager] CheckPlayerWinCondition called - Current: {currentCheckpoint}, Final: {finalCheckpointIndex}, GameEnded: {gameEnded}");
@@ -120,9 +134,6 @@ public class GameManagerScript : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Check if a bot has reached the final checkpoint
-    /// </summary>
     public void CheckBotWinCondition(GameObject bot, int currentCheckpoint)
     {
         Debug.Log($"[GameManager] CheckBotWinCondition called - Bot: {bot.name}, Current: {currentCheckpoint}, Final: {finalCheckpointIndex}, GameEnded: {gameEnded}");
@@ -153,6 +164,20 @@ public class GameManagerScript : MonoBehaviour
         // Format time
         string timeString = FormatTime(gameDuration);
 
+        // Get player name
+        string playerName = defaultPlayerName;
+        if (mainPlayer != null)
+        {
+            NameScript nameScript = mainPlayer.GetComponent<NameScript>();
+            if (nameScript != null)
+            {
+                playerName = nameScript.GetDisplayName();
+            }
+        }
+
+        // Save the win record
+        SaveWinRecord(playerName, playerTurnCount, timeString);
+
         // Update win panel
         if (winPanel != null)
         {
@@ -175,6 +200,52 @@ public class GameManagerScript : MonoBehaviour
 
         // Pause the game
         Time.timeScale = 0f;
+    }
+
+    private void SaveWinRecord(string playerName, int turns, string time)
+    {
+        try
+        {
+            // Load existing records or create new list
+            WinRecordList recordList;
+
+            if (File.Exists(saveFilePath))
+            {
+                string json = File.ReadAllText(saveFilePath);
+                recordList = JsonUtility.FromJson<WinRecordList>(json);
+                if (recordList == null)
+                {
+                    recordList = new WinRecordList();
+                }
+            }
+            else
+            {
+                recordList = new WinRecordList();
+            }
+
+            // Create new record
+            WinRecord newRecord = new WinRecord
+            {
+                playerName = playerName,
+                turns = turns,
+                time = time,
+                date = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+            };
+
+            // Add to list
+            recordList.records.Add(newRecord);
+
+            // Save to file
+            string jsonToSave = JsonUtility.ToJson(recordList, true);
+            File.WriteAllText(saveFilePath, jsonToSave);
+
+            Debug.Log($"[GameManager] Win record saved! Player: {playerName}, Turns: {turns}, Time: {time}");
+            Debug.Log($"[GameManager] Total records: {recordList.records.Count}");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[GameManager] Failed to save win record: {e.Message}");
+        }
     }
 
     private void PlayerLoses(string winnerName)
@@ -219,10 +290,6 @@ public class GameManagerScript : MonoBehaviour
         return $"{minutes:00}:{seconds:00}";
     }
 
-    // Update the GoToMenu method
-    /// <summary>
-    /// Call this from the menu button
-    /// </summary>
     public void GoToMenu()
     {
         Debug.Log("[GameManager] Going to menu...");
@@ -242,9 +309,6 @@ public class GameManagerScript : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Restart the current game
-    /// </summary>
     public void RestartGame()
     {
         Debug.Log("[GameManager] Restarting game...");
@@ -263,26 +327,57 @@ public class GameManagerScript : MonoBehaviour
     public bool IsGameEnded() => gameEnded;
 
     /// <summary>
-    /// Manual test method - call this to test win screen
+    /// Load all win records from file
     /// </summary>
+    public WinRecordList LoadWinRecords()
+    {
+        try
+        {
+            if (File.Exists(saveFilePath))
+            {
+                string json = File.ReadAllText(saveFilePath);
+                return JsonUtility.FromJson<WinRecordList>(json);
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[GameManager] Failed to load win records: {e.Message}");
+        }
+
+        return new WinRecordList();
+    }
+
+    /// <summary>
+    /// Clear all win records
+    /// </summary>
+    public void ClearWinRecords()
+    {
+        try
+        {
+            if (File.Exists(saveFilePath))
+            {
+                File.Delete(saveFilePath);
+                Debug.Log("[GameManager] Win records cleared!");
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[GameManager] Failed to clear win records: {e.Message}");
+        }
+    }
+
     public void TestWinScreen()
     {
         Debug.Log("[GameManager] TESTING WIN SCREEN");
         PlayerWins();
     }
 
-    /// <summary>
-    /// Manual test method - call this to test lose screen
-    /// </summary>
     public void TestLoseScreen()
     {
         Debug.Log("[GameManager] TESTING LOSE SCREEN");
         PlayerLoses("Test Bot");
     }
 
-    /// <summary>
-    /// Debug method to check current setup
-    /// </summary>
     public void DebugCheckSetup()
     {
         Debug.Log("===== GAMEMANAGER DEBUG INFO =====");
@@ -300,6 +395,7 @@ public class GameManagerScript : MonoBehaviour
         Debug.Log($"Final Checkpoint Index: {finalCheckpointIndex}");
         Debug.Log($"Menu Scene Name: {menuSceneName}");
         Debug.Log($"Game Ended: {gameEnded}");
+        Debug.Log($"Save File Path: {saveFilePath}");
         Debug.Log("==================================");
     }
 }

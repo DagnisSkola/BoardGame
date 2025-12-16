@@ -7,6 +7,10 @@ public class MenuSwitcher : MonoBehaviour
     public GameObject mainMenu;
     public GameObject characterCreationMenu;
     public GameObject settingsMenu;
+    public GameObject leaderboardMenu;
+
+    [Header("Optional Leaderboard Script")]
+    public LeaderboardScript leaderboardScript;
 
     void Start()
     {
@@ -19,23 +23,40 @@ public class MenuSwitcher : MonoBehaviour
 
     public void ShowMainMenu()
     {
-        mainMenu.SetActive(true);
-        characterCreationMenu.SetActive(false);
-        settingsMenu.SetActive(false);
+        if (mainMenu != null) mainMenu.SetActive(true);
+        if (characterCreationMenu != null) characterCreationMenu.SetActive(false);
+        if (settingsMenu != null) settingsMenu.SetActive(false);
+        if (leaderboardMenu != null) leaderboardMenu.SetActive(false);
     }
 
     public void ShowCharacterCreation()
     {
-        mainMenu.SetActive(false);
-        characterCreationMenu.SetActive(true);
-        settingsMenu.SetActive(false);
+        if (mainMenu != null) mainMenu.SetActive(false);
+        if (characterCreationMenu != null) characterCreationMenu.SetActive(true);
+        if (settingsMenu != null) settingsMenu.SetActive(false);
+        if (leaderboardMenu != null) leaderboardMenu.SetActive(false);
     }
 
     public void ShowSettings()
     {
-        mainMenu.SetActive(false);
-        characterCreationMenu.SetActive(false);
-        settingsMenu.SetActive(true);
+        if (mainMenu != null) mainMenu.SetActive(false);
+        if (characterCreationMenu != null) characterCreationMenu.SetActive(false);
+        if (settingsMenu != null) settingsMenu.SetActive(true);
+        if (leaderboardMenu != null) leaderboardMenu.SetActive(false);
+    }
+
+    public void ShowLeaderboard()
+    {
+        if (mainMenu != null) mainMenu.SetActive(false);
+        if (characterCreationMenu != null) characterCreationMenu.SetActive(false);
+        if (settingsMenu != null) settingsMenu.SetActive(false);
+        if (leaderboardMenu != null) leaderboardMenu.SetActive(true);
+
+        // Refresh the leaderboard when showing it
+        if (leaderboardScript != null)
+        {
+            leaderboardScript.RefreshLeaderboard();
+        }
     }
 
     // Optional: with delay (use Invoke instead of coroutine to avoid inactive GameObject issues)
@@ -52,5 +73,10 @@ public class MenuSwitcher : MonoBehaviour
     public void ShowSettingsDelayed(float delay)
     {
         Invoke(nameof(ShowSettings), delay);
+    }
+
+    public void ShowLeaderboardDelayed(float delay)
+    {
+        Invoke(nameof(ShowLeaderboard), delay);
     }
 }
