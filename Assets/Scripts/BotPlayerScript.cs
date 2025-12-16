@@ -8,15 +8,17 @@ public class BotPlayerScript : MonoBehaviour
     [SerializeField] private DiceRollScript diceRollScript;
     [SerializeField] private CameraFollowScript cameraFollow;
     [SerializeField] private Transform checkpointParent;
-    [SerializeField] private CheckpointMovementScript checkpointMovement; // Use existing rules
+    [SerializeField] private CheckpointMovementScript checkpointMovement;
+    [SerializeField] private GameManagerScript gameManager;
 
     [Header("Bot Settings")]
-    [SerializeField] private float botTurnDelay = 2f; // Delay before bot takes their turn
-    [SerializeField] private float diceWaitTime = 4f; // Max time to wait for dice to settle
-    [SerializeField] private float minRollTime = 0.5f; // Minimum time before checking if dice landed
+    [SerializeField] private float botTurnDelay = 2f;
+    [SerializeField] private float diceWaitTime = 4f;
+    [SerializeField] private float minRollTime = 0.5f;
     [SerializeField] private float moveSpeed = 3f;
     [SerializeField] private float rotationSpeed = 5f;
     [SerializeField] private float heightOffset = 0.5f;
+    [SerializeField] private bool requireExactLanding = true; // NEW: Enable bounce-back for bots
 
     private List<GameObject> allPlayers = new List<GameObject>();
     private int currentPlayerIndex = 0;
@@ -24,9 +26,10 @@ public class BotPlayerScript : MonoBehaviour
     private Dictionary<GameObject, int> playerCheckpointIndices = new Dictionary<GameObject, int>();
     private bool isProcessingTurn = false;
 
+    private TurnIndicatorScript turnIndicator;
+
     void Start()
     {
-        // Find references if not assigned
         if (diceRollScript == null)
         {
             diceRollScript = FindFirstObjectByType<DiceRollScript>();
@@ -43,7 +46,12 @@ public class BotPlayerScript : MonoBehaviour
             Debug.Log("[BotPlayer] Found CheckpointMovementScript automatically");
         }
 
-        // Load checkpoints
+        if (gameManager == null)
+        {
+            gameManager = FindFirstObjectByType<GameManagerScript>();
+            Debug.Log("[BotPlayer] Found GameManagerScript automatically");
+        }
+
         if (checkpointParent != null)
         {
             PopulateCheckpoints();
@@ -87,19 +95,16 @@ public class BotPlayerScript : MonoBehaviour
         return int.TryParse(numberPart, out int number) ? number : 0;
     }
 
-    // Call this from PlayerScript to register all players
     public void RegisterPlayers(GameObject mainPlayer, List<GameObject> botPlayers)
     {
         Debug.Log("[BotPlayer] ===== RegisterPlayers called =====");
         allPlayers.Clear();
         playerCheckpointIndices.Clear();
 
-        // Add main player first
         allPlayers.Add(mainPlayer);
         playerCheckpointIndices[mainPlayer] = 0;
         Debug.Log($"[BotPlayer] Registered main player: {mainPlayer.name} at index 0");
 
-        // Add bot players
         for (int i = 0; i < botPlayers.Count; i++)
         {
             GameObject bot = botPlayers[i];
@@ -109,13 +114,18 @@ public class BotPlayerScript : MonoBehaviour
         }
 
         Debug.Log($"[BotPlayer] ===== Total players registered: {allPlayers.Count} =====");
-        Debug.Log($"[BotPlayer] Player list: {string.Join(", ", allPlayers.ConvertAll(p => p.name))}");
     }
 
-    // Call this when the main player finishes their turn
     public void OnPlayerTurnComplete()
     {
         Debug.Log($"[BotPlayer] OnPlayerTurnComplete called. isProcessingTurn: {isProcessingTurn}, allPlayers.Count: {allPlayers.Count}");
+
+        // Check if game has ended
+        if (gameManager != null && gameManager.IsGameEnded())
+        {
+            Debug.Log("[BotPlayer] Game has ended, skipping bot turns");
+            return;
+        }
 
         if (!isProcessingTurn && allPlayers.Count > 1)
         {
@@ -135,50 +145,51 @@ public class BotPlayerScript : MonoBehaviour
     private IEnumerator ProcessBotTurns()
     {
         Debug.Log($"[BotPlayer] ===== ProcessBotTurns started =====");
-        Debug.Log($"[BotPlayer] Total players: {allPlayers.Count}");
         isProcessingTurn = true;
 
-        // Disable player control during bot turns
         if (checkpointMovement != null)
         {
             checkpointMovement.SetPlayerControlEnabled(false);
         }
 
-        // Process all bot players (skip index 0 which is the main player)
         for (int i = 1; i < allPlayers.Count; i++)
         {
+            // Check if game ended before processing this bot
+            if (gameManager != null && gameManager.IsGameEnded())
+            {
+                Debug.Log("[BotPlayer] Game ended during bot turns, stopping");
+                break;
+            }
+
             currentPlayerIndex = i;
             GameObject currentBot = allPlayers[i];
 
+            if (turnIndicator != null)
+            {
+                string botName = currentBot.GetComponent<NameScript>().GetDisplayName();
+                turnIndicator.ShowBotTurn(botName);
+            }
+
             Debug.Log($"[BotPlayer] ===== Processing bot at index {i}: {currentBot.name} =====");
 
-            // Wait before bot's turn
-            Debug.Log($"[BotPlayer] Waiting {botTurnDelay} seconds before {currentBot.name}'s turn");
             yield return new WaitForSeconds(botTurnDelay);
 
-            // Roll the dice and wait for result
             int diceRoll = 0;
             if (diceRollScript != null)
             {
                 Debug.Log($"[BotPlayer] {currentBot.name} is rolling the dice...");
 
-                // Tell the checkpoint system to ignore this dice roll
                 if (checkpointMovement != null)
                 {
                     checkpointMovement.IgnoreNextDiceLanding();
                 }
 
-                // Reset the dice state properly
                 diceRollScript.ResetDice();
-                yield return new WaitForSeconds(0.3f); // Small delay after reset
+                yield return new WaitForSeconds(0.3f);
 
-                // Get the Rigidbody component
                 Rigidbody diceRB = diceRollScript.GetComponent<Rigidbody>();
-
-                // Make sure dice is not kinematic
                 diceRB.isKinematic = false;
 
-                // Apply random rotation and force
                 diceRollScript.transform.rotation = new Quaternion(
                     Random.Range(0, 360),
                     Random.Range(0, 360),
@@ -192,12 +203,8 @@ public class BotPlayerScript : MonoBehaviour
                 diceRB.AddForce(Vector3.up * Random.Range(800, 1200));
                 diceRB.AddTorque(forceX, forceY, forceZ);
 
-                Debug.Log($"[BotPlayer] Dice thrown, waiting for it to settle...");
-
-                // Wait minimum roll time first
                 yield return new WaitForSeconds(minRollTime);
 
-                // Now check every frame if dice has landed
                 float elapsed = minRollTime;
                 bool diceHasLanded = false;
 
@@ -205,16 +212,13 @@ public class BotPlayerScript : MonoBehaviour
                 {
                     if (diceRollScript.isLanded)
                     {
-                        Debug.Log($"[BotPlayer] Dice landed after {elapsed:F2} seconds");
                         diceHasLanded = true;
                         break;
                     }
-
-                    yield return null; // Check every frame instead of waiting
+                    yield return null;
                     elapsed += Time.deltaTime;
                 }
 
-                // Get the result
                 if (diceHasLanded && diceRollScript.isLanded)
                 {
                     if (int.TryParse(diceRollScript.diceFaceNum, out diceRoll))
@@ -223,69 +227,67 @@ public class BotPlayerScript : MonoBehaviour
                     }
                     else
                     {
-                        Debug.LogWarning($"[BotPlayer] Could not parse dice result: '{diceRollScript.diceFaceNum}', using random");
                         diceRoll = Random.Range(1, 7);
                         Debug.Log($"[BotPlayer] *** {currentBot.name} random roll: {diceRoll} ***");
                     }
                 }
                 else
                 {
-                    Debug.LogWarning($"[BotPlayer] Dice didn't land in time (elapsed: {elapsed:F2}s), using random number");
                     diceRoll = Random.Range(1, 7);
                     Debug.Log($"[BotPlayer] *** {currentBot.name} random roll: {diceRoll} ***");
                 }
 
-                // Small delay to show the result
                 yield return new WaitForSeconds(0.5f);
             }
             else
             {
-                Debug.LogWarning("[BotPlayer] DiceRollScript is null, using random number");
                 diceRoll = Random.Range(1, 7);
                 Debug.Log($"[BotPlayer] *** {currentBot.name} random roll: {diceRoll} ***");
             }
 
-            // Validate dice roll
             if (diceRoll <= 0)
             {
-                Debug.LogError($"[BotPlayer] Invalid dice roll: {diceRoll}, setting to 1");
                 diceRoll = 1;
             }
 
-            // Tell camera to follow this bot
             if (cameraFollow != null)
             {
-                Debug.Log($"[BotPlayer] Setting camera to follow {currentBot.name}");
                 cameraFollow.SetPlayerToFollow(currentBot);
                 cameraFollow.StartFollowing();
             }
-            else
+
+            yield return StartCoroutine(MoveBot(currentBot, diceRoll));
+
+            // Check win condition after bot movement
+            if (gameManager != null && playerCheckpointIndices.ContainsKey(currentBot))
             {
-                Debug.LogWarning("[BotPlayer] Camera follow is null!");
+                int botCheckpoint = playerCheckpointIndices[currentBot];
+                gameManager.CheckBotWinCondition(currentBot, botCheckpoint);
+
+                // If bot won, break the loop
+                if (gameManager.IsGameEnded())
+                {
+                    Debug.Log("[BotPlayer] Bot won the game!");
+                    break;
+                }
             }
 
-            // Move the bot
-            Debug.Log($"[BotPlayer] Starting movement for {currentBot.name}");
-            yield return StartCoroutine(MoveBot(currentBot, diceRoll));
-            Debug.Log($"[BotPlayer] Movement complete for {currentBot.name}");
+            // Notify GameManager that bot turn is complete
+            if (gameManager != null)
+            {
+                gameManager.OnBotTurnComplete();
+            }
 
-            // Check for special rules
-            Debug.Log($"[BotPlayer] Checking special rules for {currentBot.name}");
             yield return StartCoroutine(CheckSpecialRules(currentBot));
 
-            // Tell camera to stop following
             if (cameraFollow != null)
             {
-                Debug.Log($"[BotPlayer] Camera stop following {currentBot.name}");
                 cameraFollow.StopFollowing();
             }
 
-            // Small delay between bot turns
-            Debug.Log($"[BotPlayer] Turn complete for {currentBot.name}, waiting 0.5s");
             yield return new WaitForSeconds(0.5f);
         }
 
-        // Re-enable player control after all bot turns
         if (checkpointMovement != null)
         {
             checkpointMovement.SetPlayerControlEnabled(true);
@@ -294,83 +296,159 @@ public class BotPlayerScript : MonoBehaviour
         isProcessingTurn = false;
         Debug.Log("[BotPlayer] ===== All bot turns complete =====");
 
-        // Reset to main player
         if (allPlayers.Count > 0 && cameraFollow != null)
         {
-            Debug.Log($"[BotPlayer] Resetting camera to main player: {allPlayers[0].name}");
             cameraFollow.SetPlayerToFollow(allPlayers[0]);
+        }
+
+        // Only show player turn again if game hasn't ended
+        if (gameManager != null && !gameManager.IsGameEnded())
+        {
+            if (turnIndicator != null && allPlayers.Count > 0)
+            {
+                GameObject mainPlayer = allPlayers[0];
+                string playerName = mainPlayer.GetComponent<NameScript>().GetDisplayName();
+                turnIndicator.ShowPlayerTurn(playerName);
+            }
         }
     }
 
+    // Replace the MoveBot method with this updated version
     private IEnumerator MoveBot(GameObject bot, int steps)
     {
-        Debug.Log($"[BotPlayer] ========== MoveBot START ==========");
-        Debug.Log($"[BotPlayer] Bot: {bot.name}, Steps: {steps}");
-
-        if (bot == null)
+        if (bot == null || checkpoints == null || checkpoints.Length == 0)
         {
-            Debug.LogError("[BotPlayer] Bot is NULL!");
-            yield break;
-        }
-
-        if (checkpoints == null || checkpoints.Length == 0)
-        {
-            Debug.LogError("[BotPlayer] Checkpoints array is null or empty!");
+            Debug.LogError("[BotPlayer] Invalid bot or checkpoints!");
             yield break;
         }
 
         if (!playerCheckpointIndices.ContainsKey(bot))
         {
             Debug.LogError($"[BotPlayer] Bot {bot.name} not found in checkpoint indices!");
-            Debug.Log($"[BotPlayer] Available keys: {string.Join(", ", new List<GameObject>(playerCheckpointIndices.Keys).ConvertAll(p => p.name))}");
             yield break;
         }
 
         int currentCheckpointIndex = playerCheckpointIndices[bot];
-        Debug.Log($"[BotPlayer] {bot.name} starting at checkpoint {currentCheckpointIndex}");
-        Debug.Log($"[BotPlayer] Current position: {bot.transform.position}");
+        int remainingSteps = steps;
+        int stepsToFinal = checkpoints.Length - 1 - currentCheckpointIndex;
 
-        for (int i = 0; i < steps; i++)
+        // Check if we need exact landing
+        if (requireExactLanding && remainingSteps > stepsToFinal && stepsToFinal > 0)
         {
-            int targetIndex = currentCheckpointIndex + 1;
-            Debug.Log($"[BotPlayer] === Step {i + 1}/{steps} ===");
-            Debug.Log($"[BotPlayer] {bot.name} moving from checkpoint {currentCheckpointIndex} to {targetIndex}");
+            Debug.Log($"[BotPlayer] {bot.name} needs exact landing! Rolled {remainingSteps}, need {stepsToFinal}");
 
-            if (targetIndex >= checkpoints.Length)
+            // Move forward to the final checkpoint
+            for (int i = 0; i < stepsToFinal; i++)
             {
-                Debug.Log($"[BotPlayer] {bot.name} reached the final checkpoint!");
-                break;
+                int targetIndex = currentCheckpointIndex + 1;
+
+                if (targetIndex >= checkpoints.Length)
+                {
+                    break;
+                }
+
+                if (checkpoints[targetIndex] == null)
+                {
+                    Debug.LogError($"[BotPlayer] Checkpoint at index {targetIndex} is NULL!");
+                    break;
+                }
+
+                yield return StartCoroutine(MoveToCheckpoint(bot, checkpoints[targetIndex]));
+                currentCheckpointIndex = targetIndex;
+                playerCheckpointIndices[bot] = currentCheckpointIndex;
+
+                // Check win condition after each step
+                if (gameManager != null)
+                {
+                    gameManager.CheckBotWinCondition(bot, currentCheckpointIndex);
+                    if (gameManager.IsGameEnded())
+                    {
+                        Debug.Log($"[BotPlayer] {bot.name} won! Stopping movement.");
+                        yield break;
+                    }
+                }
+
+                yield return new WaitForSeconds(0.2f);
             }
 
-            if (checkpoints[targetIndex] == null)
+            // Calculate bounce-back steps
+            int bounceBackSteps = remainingSteps - stepsToFinal;
+            Debug.Log($"[BotPlayer] {bot.name} reached final checkpoint! Bouncing back {bounceBackSteps} steps");
+
+            yield return new WaitForSeconds(0.3f); // Small pause at the final checkpoint
+
+            // Bounce back
+            for (int i = 0; i < bounceBackSteps; i++)
             {
-                Debug.LogError($"[BotPlayer] Checkpoint at index {targetIndex} is NULL!");
-                break;
+                int targetIndex = currentCheckpointIndex - 1;
+
+                if (targetIndex < 0)
+                {
+                    Debug.Log($"[BotPlayer] {bot.name} can't bounce back further!");
+                    break;
+                }
+
+                if (checkpoints[targetIndex] == null)
+                {
+                    Debug.LogError($"[BotPlayer] Checkpoint at index {targetIndex} is NULL!");
+                    break;
+                }
+
+                yield return StartCoroutine(MoveToCheckpoint(bot, checkpoints[targetIndex]));
+                currentCheckpointIndex = targetIndex;
+                playerCheckpointIndices[bot] = currentCheckpointIndex;
+
+                yield return new WaitForSeconds(0.2f);
             }
-
-            Debug.Log($"[BotPlayer] Target checkpoint position: {checkpoints[targetIndex].position}");
-            yield return StartCoroutine(MoveToCheckpoint(bot, checkpoints[targetIndex]));
-
-            currentCheckpointIndex = targetIndex;
-            playerCheckpointIndices[bot] = currentCheckpointIndex;
-            Debug.Log($"[BotPlayer] {bot.name} now at checkpoint {currentCheckpointIndex}, position: {bot.transform.position}");
-
-            yield return new WaitForSeconds(0.2f);
         }
+        else
+        {
+            // Normal movement (no bounce-back needed)
+            for (int i = 0; i < remainingSteps; i++)
+            {
+                int targetIndex = currentCheckpointIndex + 1;
 
-        Debug.Log($"[BotPlayer] ========== MoveBot COMPLETE ==========");
+                if (targetIndex >= checkpoints.Length)
+                {
+                    Debug.Log($"[BotPlayer] {bot.name} reached the final checkpoint!");
+                    break;
+                }
+
+                if (checkpoints[targetIndex] == null)
+                {
+                    Debug.LogError($"[BotPlayer] Checkpoint at index {targetIndex} is NULL!");
+                    break;
+                }
+
+                yield return StartCoroutine(MoveToCheckpoint(bot, checkpoints[targetIndex]));
+
+                currentCheckpointIndex = targetIndex;
+                playerCheckpointIndices[bot] = currentCheckpointIndex;
+
+                // Check win condition after each step
+                if (gameManager != null)
+                {
+                    gameManager.CheckBotWinCondition(bot, currentCheckpointIndex);
+
+                    // If bot won, stop moving
+                    if (gameManager.IsGameEnded())
+                    {
+                        Debug.Log($"[BotPlayer] {bot.name} won! Stopping movement.");
+                        yield break;
+                    }
+                }
+
+                yield return new WaitForSeconds(0.2f);
+            }
+        }
     }
 
     private IEnumerator MoveToCheckpoint(GameObject bot, Transform targetCheckpoint)
     {
-        Debug.Log($"[BotPlayer] MoveToCheckpoint START for {bot.name}");
-
         Vector3 startPos = bot.transform.position;
         Vector3 endPos = targetCheckpoint.position;
         float distance = Vector3.Distance(startPos, endPos);
         float duration = distance / moveSpeed;
-
-        Debug.Log($"[BotPlayer] Start: {startPos}, End: {endPos}, Distance: {distance:F2}, Duration: {duration:F2}s");
 
         float elapsed = 0f;
 
@@ -378,7 +456,7 @@ public class BotPlayerScript : MonoBehaviour
         {
             elapsed += Time.deltaTime;
             float t = elapsed / duration;
-            t = t * t * (3f - 2f * t); // Smooth step
+            t = t * t * (3f - 2f * t);
 
             Vector3 currentPos = Vector3.Lerp(startPos, endPos, t);
             float arc = heightOffset * Mathf.Sin(t * Mathf.PI);
@@ -386,7 +464,6 @@ public class BotPlayerScript : MonoBehaviour
 
             bot.transform.position = currentPos;
 
-            // Rotate to face movement direction
             if (endPos != startPos)
             {
                 Vector3 direction = (endPos - startPos).normalized;
@@ -402,7 +479,6 @@ public class BotPlayerScript : MonoBehaviour
         }
 
         bot.transform.position = endPos;
-        Debug.Log($"[BotPlayer] MoveToCheckpoint COMPLETE for {bot.name} at position {endPos}");
     }
 
     private IEnumerator CheckSpecialRules(GameObject bot)
@@ -412,7 +488,6 @@ public class BotPlayerScript : MonoBehaviour
 
         int currentCheckpointIndex = playerCheckpointIndices[bot];
 
-        // Use the special rules from CheckpointMovementScript if available
         if (checkpointMovement != null)
         {
             var specialRules = checkpointMovement.GetSpecialRules();
@@ -433,20 +508,29 @@ public class BotPlayerScript : MonoBehaviour
                     {
                         bot.transform.position = checkpoints[applicableRule.toCheckpoint].position;
                         playerCheckpointIndices[bot] = applicableRule.toCheckpoint;
-                        Debug.Log($"[BotPlayer] {bot.name} teleported to checkpoint {applicableRule.toCheckpoint}");
+
+                        // Check win condition after teleport
+                        if (gameManager != null)
+                        {
+                            gameManager.CheckBotWinCondition(bot, applicableRule.toCheckpoint);
+                        }
                     }
                     else if (applicableRule.movementType == CheckpointMovementScript.MovementType.SmoothMove)
                     {
                         yield return StartCoroutine(MoveToCheckpoint(bot, checkpoints[applicableRule.toCheckpoint]));
                         playerCheckpointIndices[bot] = applicableRule.toCheckpoint;
-                        Debug.Log($"[BotPlayer] {bot.name} moved to checkpoint {applicableRule.toCheckpoint}");
+
+                        // Check win condition after smooth move
+                        if (gameManager != null)
+                        {
+                            gameManager.CheckBotWinCondition(bot, applicableRule.toCheckpoint);
+                        }
                     }
                 }
             }
         }
     }
 
-    // Public method to get current checkpoint index for a player
     public int GetPlayerCheckpointIndex(GameObject player)
     {
         if (playerCheckpointIndices.ContainsKey(player))
@@ -456,12 +540,17 @@ public class BotPlayerScript : MonoBehaviour
         return 0;
     }
 
-    // Public method to manually trigger a bot turn (for testing)
     public void TriggerBotTurns()
     {
         if (!isProcessingTurn)
         {
             StartCoroutine(ProcessBotTurns());
         }
+    }
+
+    public void SetTurnIndicator(TurnIndicatorScript indicator)
+    {
+        turnIndicator = indicator;
+        Debug.Log($"[BotPlayer] ===== SetTurnIndicator called, is null? {indicator == null} =====");
     }
 }

@@ -9,6 +9,7 @@ public class CheckpointMovementScript : MonoBehaviour
     public event Action OnMovementComplete;
 
     [Header("References")]
+    [SerializeField] private GameManagerScript gameManager;
     [SerializeField] private DiceRollScript diceRollScript;
     [SerializeField] private CameraFollowScript cameraFollow;
     private GameObject playerCharacter;
@@ -22,6 +23,7 @@ public class CheckpointMovementScript : MonoBehaviour
     [Header("Movement Settings")]
     [SerializeField] private float heightOffset = 0.5f;
     [SerializeField] private float teleportDelay = 0.5f;
+    [SerializeField] private bool requireExactLanding = true; // NEW: Enable bounce-back feature
 
     [Header("Special Checkpoint Rules")]
     [SerializeField] private List<CheckpointRule> specialRules = new List<CheckpointRule>();
@@ -32,6 +34,8 @@ public class CheckpointMovementScript : MonoBehaviour
     private bool wasLanded = false;
     private bool isPlayerControlled = true;
     private bool shouldIgnoreNextLanding = false;
+
+
 
     [System.Serializable]
     public class CheckpointRule
@@ -56,11 +60,18 @@ public class CheckpointMovementScript : MonoBehaviour
         }
     }
 
+    // Also add this in Start() to find GameManager if not assigned
     void Start()
     {
         if (diceRollScript == null)
         {
             diceRollScript = FindFirstObjectByType<DiceRollScript>();
+        }
+
+        if (gameManager == null)
+        {
+            gameManager = FindFirstObjectByType<GameManagerScript>();
+            Debug.Log($"[CheckpointMovement] GameManager found: {gameManager != null}");
         }
 
         if (checkpointParent != null && (checkpoints == null || checkpoints.Length == 0))
@@ -168,6 +179,7 @@ public class CheckpointMovementScript : MonoBehaviour
         return 0;
     }
 
+    // Replace the MoveToCheckpoints method with this updated version
     private IEnumerator MoveToCheckpoints(int steps)
     {
         isMoving = true;
@@ -177,22 +189,85 @@ public class CheckpointMovementScript : MonoBehaviour
             cameraFollow.StartFollowing();
         }
 
-        for (int i = 0; i < steps; i++)
-        {
-            int targetIndex = currentCheckpointIndex + 1;
+        int remainingSteps = steps;
+        int stepsToFinal = checkpoints.Length - 1 - currentCheckpointIndex;
 
-            if (targetIndex >= checkpoints.Length)
+        // Check if we need exact landing
+        if (requireExactLanding && remainingSteps > stepsToFinal && stepsToFinal > 0)
+        {
+            Debug.Log($"[CheckpointMovement] Need exact landing! Rolled {remainingSteps}, need {stepsToFinal}");
+
+            // Move forward to the final checkpoint
+            for (int i = 0; i < stepsToFinal; i++)
             {
-                Debug.Log("Player has reached the final checkpoint!");
-                break;
+                int targetIndex = currentCheckpointIndex + 1;
+
+                if (targetIndex >= checkpoints.Length)
+                {
+                    break;
+                }
+
+                yield return StartCoroutine(MoveToCheckpoint(checkpoints[targetIndex]));
+                currentCheckpointIndex = targetIndex;
+                yield return new WaitForSeconds(0.2f);
             }
 
-            yield return StartCoroutine(MoveToCheckpoint(checkpoints[targetIndex]));
-            currentCheckpointIndex = targetIndex;
-            yield return new WaitForSeconds(0.2f);
+            // Calculate bounce-back steps
+            int bounceBackSteps = remainingSteps - stepsToFinal;
+            Debug.Log($"[CheckpointMovement] Reached final checkpoint! Bouncing back {bounceBackSteps} steps");
+
+            yield return new WaitForSeconds(0.3f); // Small pause at the final checkpoint
+
+            // Bounce back
+            for (int i = 0; i < bounceBackSteps; i++)
+            {
+                int targetIndex = currentCheckpointIndex - 1;
+
+                if (targetIndex < 0)
+                {
+                    Debug.Log("[CheckpointMovement] Can't bounce back further!");
+                    break;
+                }
+
+                yield return StartCoroutine(MoveToCheckpoint(checkpoints[targetIndex]));
+                currentCheckpointIndex = targetIndex;
+                yield return new WaitForSeconds(0.2f);
+            }
+        }
+        else
+        {
+            // Normal movement (no bounce-back needed)
+            for (int i = 0; i < remainingSteps; i++)
+            {
+                int targetIndex = currentCheckpointIndex + 1;
+
+                if (targetIndex >= checkpoints.Length)
+                {
+                    Debug.Log("Player has reached the final checkpoint!");
+                    break;
+                }
+
+                yield return StartCoroutine(MoveToCheckpoint(checkpoints[targetIndex]));
+                currentCheckpointIndex = targetIndex;
+                yield return new WaitForSeconds(0.2f);
+            }
         }
 
         yield return StartCoroutine(CheckSpecialRules());
+
+        // Notify GameManager that player completed their turn
+        if (gameManager != null)
+        {
+            gameManager.OnPlayerTurnComplete();
+            Debug.Log("[CheckpointMovement] Player turn counted");
+        }
+
+        // Check if player won after movement completes
+        if (gameManager != null)
+        {
+            Debug.Log($"[CheckpointMovement] Checking win condition at checkpoint {currentCheckpointIndex}");
+            gameManager.CheckPlayerWinCondition(currentCheckpointIndex);
+        }
 
         if (cameraFollow != null)
         {
@@ -200,7 +275,12 @@ public class CheckpointMovementScript : MonoBehaviour
         }
 
         isMoving = false;
-        OnMovementComplete?.Invoke();
+
+        // Only fire the event if game hasn't ended
+        if (gameManager == null || !gameManager.IsGameEnded())
+        {
+            OnMovementComplete?.Invoke();
+        }
     }
 
     private IEnumerator CheckSpecialRules()
@@ -341,5 +421,52 @@ public class CheckpointMovementScript : MonoBehaviour
     public void IgnoreNextDiceLanding()
     {
         shouldIgnoreNextLanding = true;
+    }
+
+    /// <summary>
+    /// Teleports the player character to a specific checkpoint index.
+    /// Can be called from a UI button.
+    /// </summary>
+    /// <param name="checkpointIndex">The checkpoint index to teleport to</param>
+    public void TeleportToCheckpoint(int checkpointIndex)
+    {
+        if (playerCharacter == null)
+        {
+            Debug.LogError("[CheckpointMovement] Cannot teleport - player character is null!");
+            return;
+        }
+
+        if (checkpoints == null || checkpoints.Length == 0)
+        {
+            Debug.LogError("[CheckpointMovement] Cannot teleport - no checkpoints loaded!");
+            return;
+        }
+
+        if (checkpointIndex < 0 || checkpointIndex >= checkpoints.Length)
+        {
+            Debug.LogError($"[CheckpointMovement] Invalid checkpoint index: {checkpointIndex}. Valid range: 0-{checkpoints.Length - 1}");
+            return;
+        }
+
+        if (isMoving)
+        {
+            Debug.LogWarning("[CheckpointMovement] Cannot teleport while player is moving!");
+            return;
+        }
+
+        // Teleport the player
+        playerCharacter.transform.position = checkpoints[checkpointIndex].position;
+        currentCheckpointIndex = checkpointIndex;
+
+        Debug.Log($"[CheckpointMovement] Player teleported to checkpoint {checkpointIndex}");
+    }
+
+    /// <summary>
+    /// Convenience method to teleport to checkpoint 110 specifically.
+    /// Can be directly connected to a UI button.
+    /// </summary>
+    public void TeleportToCheckpoint110()
+    {
+        TeleportToCheckpoint(117);
     }
 }

@@ -14,27 +14,27 @@ public class SceneChanger : MonoBehaviour
 
     public IEnumerator Delay(string command, int characterIndex, string characterName)
     {
-        if(string.Equals(command, "quit", System.StringComparison.OrdinalIgnoreCase))
+        // ALWAYS RESET TIME SCALE BEFORE SCENE TRANSITIONS
+        Time.timeScale = 1f;
+
+        if (string.Equals(command, "quit", System.StringComparison.OrdinalIgnoreCase))
         {
             yield return fadeScript.FadeOut(0.3f);
             PlayerPrefs.DeleteAll();
-            
-            if(UnityEditor.EditorApplication.isPlaying)
-            {
-                UnityEditor.EditorApplication.isPlaying = false;
-            }
-            else
-            {
-                Application.Quit();
-            }
+
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
         }
-        else if(string.Equals(command, "play", System.StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(command, "play", System.StringComparison.OrdinalIgnoreCase))
         {
             yield return fadeScript.FadeOut(0.3f);
             saveLoadScript.SaveGame(characterIndex, characterName);
             SceneManager.LoadScene(1, LoadSceneMode.Single);
         }
-        else if(string.Equals(command, "menu", System.StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(command, "menu", System.StringComparison.OrdinalIgnoreCase))
         {
             yield return fadeScript.FadeOut(0.3f);
             SceneManager.LoadScene(0, LoadSceneMode.Single);

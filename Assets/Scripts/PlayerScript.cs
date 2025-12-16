@@ -11,11 +11,17 @@ public class PlayerScript : MonoBehaviour
     int index;
     private const string textFileName = "PlayerNames";
 
+    [Header("UI")]
+    public TurnIndicatorScript turnIndicator;
+
     [Header("Checkpoint System")]
     public CheckpointMovementScript checkpointMovement;
 
     [Header("Bot System")]
     public BotPlayerScript botPlayerScript;
+
+    [Header("Game Manager")]
+    public GameManagerScript gameManager;
 
     private GameObject mainPlayer;
     private List<GameObject> botPlayers = new List<GameObject>();
@@ -28,6 +34,19 @@ public class PlayerScript : MonoBehaviour
         mainPlayer = Instantiate(playerPrefabs[characterIndex], spawnPoint.transform.position, Quaternion.identity);
         mainPlayer.GetComponent<NameScript>().SetName(PlayerPrefs.GetString("PlayerName", "John Doe"));
         Debug.Log($"[PlayerScript] Main player created: {mainPlayer.name}");
+
+        // Find GameManager if not assigned
+        if (gameManager == null)
+        {
+            gameManager = FindFirstObjectByType<GameManagerScript>();
+            Debug.Log($"[PlayerScript] GameManager found automatically: {gameManager != null}");
+        }
+
+        // Register main player with GameManager
+        if (gameManager != null)
+        {
+            gameManager.RegisterMainPlayer(mainPlayer);
+        }
 
         // Register the main character with the checkpoint system
         if (checkpointMovement != null)
@@ -66,6 +85,7 @@ public class PlayerScript : MonoBehaviour
         {
             Debug.Log("[PlayerScript] Registering all players with bot system");
             botPlayerScript.RegisterPlayers(mainPlayer, botPlayers);
+            botPlayerScript.SetTurnIndicator(turnIndicator);
         }
         else
         {
@@ -73,13 +93,56 @@ public class PlayerScript : MonoBehaviour
         }
 
         Debug.Log("[PlayerScript] ===== Start complete =====");
+
+        // Show player turn
+        if (turnIndicator != null && mainPlayer != null)
+        {
+            string playerName = mainPlayer.GetComponent<NameScript>().GetDisplayName();
+            Debug.Log($"[PlayerScript] About to show turn for: {playerName}");
+            turnIndicator.ShowPlayerTurn(playerName);
+        }
+        else
+        {
+            Debug.LogError("[PlayerScript] CANNOT SHOW TURN - turnIndicator or mainPlayer is NULL!");
+        }
     }
 
     private void HandlePlayerMovementComplete()
     {
         Debug.Log("[PlayerScript] ===== HandlePlayerMovementComplete called =====");
-        Debug.Log("[PlayerScript] Main player movement complete, triggering bot turns");
+        Debug.Log("[PlayerScript] Main player movement complete");
 
+        // CHECK WIN CONDITION FIRST
+        if (gameManager != null && botPlayerScript != null)
+        {
+            int playerCheckpoint = botPlayerScript.GetPlayerCheckpointIndex(mainPlayer);
+            Debug.Log($"[PlayerScript] Checking win condition at checkpoint {playerCheckpoint}");
+            gameManager.CheckPlayerWinCondition(playerCheckpoint);
+
+            // If player won, don't continue to bot turns
+            if (gameManager.IsGameEnded())
+            {
+                Debug.Log("[PlayerScript] Player won! Not triggering bot turns.");
+                if (turnIndicator != null)
+                {
+                    turnIndicator.HidePlayerTurn();
+                }
+                return;
+            }
+        }
+
+        // Hide turn indicator
+        if (turnIndicator != null)
+        {
+            turnIndicator.HidePlayerTurn();
+            Debug.Log("[PlayerScript] HIDED PLAYER TURN");
+        }
+        else
+        {
+            Debug.LogError("[PlayerScript] turnIndicator is NULL in HandlePlayerMovementComplete!");
+        }
+
+        // Trigger bot turns
         if (botPlayerScript != null)
         {
             Debug.Log("[PlayerScript] Calling botPlayerScript.OnPlayerTurnComplete()");
