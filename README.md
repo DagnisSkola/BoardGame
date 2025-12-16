@@ -78,8 +78,20 @@ This project focuses on:
 - Basic AI behavior
 - Board-based movement systems
 
-It is ideal as a learning project or foundation for expanding into more complex board game mechanics.
-
+- [x] Main menu buttons (start, quit, settings, leaderboard)
+- [x] Character selection screen with animation
+- [x] Settings scene ;
+- [x] Board scene with throwable dice
+- [x] Game logic with multiple players ;
+- [x] Game camera ;
+- [x] Board scene with throwable dice
+- [x] Game logic with multiple players ;
+- [x] Game camera ;
+- [x] Leaderboard scene ;
+- [x] Circus game functionality ;
+- [x] Player bounces back if throw is higher than needed for finish;
+- [x] Add text to notify which players turn it is;
+- [x] Winning logic
 ---
 
 Enjoy the show, and may luck be on your side! 🎭🎉
