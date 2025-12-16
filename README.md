@@ -78,6 +78,15 @@ This project focuses on:
 - Basic AI behavior
 - Board-based movement systems
 
+## Images
+
+![Main Menu](https://imgur.com/5p0a2H2)
+![Player pick](https://imgur.com/zafRi1R)
+![Zoomed in](https://imgur.com/ltLbKB9)
+![Full view](https://imgur.com/OL610xQ)
+
+## ToDo
+
 - [x] Main menu buttons (start, quit, settings, leaderboard)
 - [x] Character selection screen with animation
 - [x] Settings scene ;
